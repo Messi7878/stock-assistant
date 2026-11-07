@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A股账户助手</title>
+<style>
+  :root {
+    --up: #e53935;   /* A股:红涨 */
+    --down: #1e8e3e; /* 绿跌 */
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --line: #e6e8eb;
+    --text: #1f2329;
+    --muted: #8a919b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+         background: var(--bg); color: var(--text); padding: 20px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  header h1 { font-size: 20px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  button { padding: 8px 16px; border: 1px solid var(--line); background: #fff;
+           border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #f0f2f5; }
+  button.primary { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+  button.primary:hover { background: #1a5fd0; }
+  input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; width: 140px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: #444; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 12px; }
+  .tag.warn { background: #fdecea; color: var(--up); }
+  .tag.info { background: #e8f0fe; color: #1f6feb; }
+  ul.alert-list { list-style: none; }
+  ul.alert-list li { padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .diag { font-size: 13px; line-height: 1.7; }
+  .diag .flags { color: var(--up); }
+  .diag .notes { color: var(--down); }
+  #ai-text { white-space: pre-wrap; font-size: 14px; line-height: 1.8; }
+  .summary { font-size: 13px; margin-bottom: 10px; }
+  .muted { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📈 A股账户助手</h1>
+  <span class="sub">本地运行 · 只分析提醒 · 不自动下单</span>
+  <button onclick="refreshAll()">🔄 刷新</button>
+  <button class="primary" id="ai-btn" onclick="loadAI()">🤖 AI 解读</button>
+  <span class="muted" id="updated"></span>
+</header>
+
+<div class="card" style="margin-bottom:16px">
+  <h2>✏️ 录入持仓</h2>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <input id="in-code" placeholder="代码,如 600519">
+    <input id="in-name" placeholder="名称(可选)">
+    <input id="in-shares" type="number" min="1" placeholder="股数">
+    <input id="in-cost" type="number" step="0.01" placeholder="成本价">
+    <button class="primary" onclick="addPosition()">添加</button>
+  </div>
+  <div id="add-msg" class="muted" style="margin-top:6px"></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>实时行情</h2>
+    <table id="quotes">
+      <thead><tr><th>名称</th><th>代码</th><th>现价</th><th>涨跌幅</th><th>最高</th><th>最低</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>⭐ 自选股</h2>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input id="wl-code" placeholder="代码,如 000001">
+      <button class="primary" onclick="addWatch()">添加</button>
+    </div>
+    <div id="wl-list" class="diag" style="margin-top:8px"><span class="muted">加载中…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>持仓盈亏</h2>
+    <div class="summary" id="pf-summary"></div>
+    <table id="portfolio">
+      <thead><tr><th>名称</th><th>持股</th><th>成本</th><th>现价</th><th>盈亏</th><th>盈亏%</th><th>操作</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>风险提醒</h2>
+    <ul class="alert-list" id="alerts"><li class="muted">加载中…</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>大盘与仓位</h2>
+    <div id="position" class="diag"></div>
+  </div>
+
+  <div class="card">
+    <h2>技术诊断</h2>
+    <div id="diag" class="diag"></div>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>💹 买卖参考</h2>
+    <div id="plans" class="diag"></div>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>📋 条件单参数(开盘前用)</h2>
+    <div id="orders" class="diag"></div>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>⭐ 每日推荐</h2>
+    <div id="picks" class="diag"><span class="muted">加载中(约需 20-40 秒)…</span></div>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>📊 推荐胜率复盘</h2>
+    <div id="review" class="diag"><span class="muted">加载中…</span></div>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>AI 解读</h2>
+    <div id="ai-text" class="muted">点击右上角「AI 解读」按钮,由 DeepSeek 生成自然语言总结(需先配置 API key)。</div>
+  </div>
+</div>
+
+<script>
+function cls(v) { return v >= 0 ? 'up' : 'down'; }
+function sign(v) { return v >= 0 ? '+' : ''; }
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  return await r.json();
+}
+
+function renderQuotes(d) {
+  const tb = document.querySelector('#quotes tbody');
+  tb.innerHTML = '';
+  for (const q of d.quotes || []) {
+    const chg = q.change_pct;
+    const chgS = chg == null ? '-' : `${sign(chg)}${chg}%`;
+    tb.innerHTML += `<tr>
+      <td>${q.name || ''}</td><td>${q.code}</td>
+      <td>${q.price ?? '-'}</td>
+      <td class="${chg == null ? '' : cls(chg)}">${chgS}</td>
+      <td>${q.high ?? '-'}</td><td>${q.low ?? '-'}</td></tr>`;
+  }
+  if (!(d.quotes || []).length) tb.innerHTML = '<tr><td colspan="6" class="muted">无数据</td></tr>';
+}
+
+function renderPortfolio(d) {
+  const s = d.summary;
+  const el = document.querySelector('#pf-summary');
+  if (!s) {
+    el.innerHTML = '<span class="muted">暂无持仓。用 <code>python main.py add 代码 股数 成本 名称</code> 录入。</span>';
+  } else {
+    el.innerHTML = `总市值 <b>${s.total_mv.toLocaleString()}</b> &nbsp;
+      总盈亏 <b class="${cls(s.total_pnl)}">${sign(s.total_pnl)}${s.total_pnl.toLocaleString()}</b>
+      (<span class="${cls(s.total_pnl_pct)}">${sign(s.total_pnl_pct)}${s.total_pnl_pct}%</span>)`;
+  }
+  const tb = document.querySelector('#portfolio tbody');
+  tb.innerHTML = '';
+  for (const p of d.positions || []) {
+    const pnl = p.pnl, pct = p.pnl_pct;
+    tb.innerHTML += `<tr>
+      <td>${p.name}</td><td>${p.shares}</td>
+      <td>${p.cost}</td><td>${p.price}</td>
+      <td class="${pnl == null ? '' : cls(pnl)}">${pnl == null ? '-' : pnl.toLocaleString()}</td>
+      <td class="${pct == null ? '' : cls(pct)}">${pct == null ? '-' : `${sign(pct)}${pct}%`}</td>
+      <td><button onclick="removePosition('${p.code}')">删除</button></td></tr>`;
+  }
+  if (!(d.positions || []).length) tb.innerHTML = '<tr><td colspan="7" class="muted">暂无持仓</td></tr>';
+  renderDiag(d);
+}
+
+function renderDiag(d) {
+  const el = document.querySelector('#diag');
+  el.innerHTML = '';
+  const rows = (d.positions || []).filter(p => p.diagnosis && !p.diagnosis.error);
+  if (!rows.length) { el.innerHTML = '<span class="muted">暂无持仓诊断。</span>'; return; }
+  for (const p of rows) {
+    const g = p.diagnosis;
+    el.innerHTML += `<div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)">
+      <b>${g.name}(${g.code})</b> <span class="muted">${g.trend}</span> ·
+      MACD ${g.macd} · RSI ${g.rsi}(${g.rsi_state}) · 量比 ${g.volume_ratio ?? '-'}<br>
+      <span class="flags">${(g.flags || []).map(f => '⚠ ' + f).join('<br>')}</span>
+      ${(g.notes || []).map(n => '<span class="notes">✓ ' + n + '</span>').join('<br>')}
+    </div>`;
+  }
+}
+
+function renderAlerts(d) {
+  const el = document.querySelector('#alerts');
+  el.innerHTML = '';
+  const list = d.alerts || [];
+  if (!list.length) { el.innerHTML = '<li class="muted">当前无触发提醒。</li>'; return; }
+  for (const a of list) {
+    el.innerHTML += `<li><span class="tag ${a.level || 'info'}">${a.kind}</span> ${a.message}</li>`;
+  }
+}
+
+async function loadQuotes() { renderQuotes(await getJSON('/api/quotes')); }
+
+async function loadWatch() {
+  const d = await getJSON('/api/watchlist');
+  const el = document.querySelector('#wl-list');
+  el.innerHTML = '';
+  const codes = d.codes || [];
+  if (!codes.length) { el.innerHTML = '<span class="muted">暂无自选。</span>'; return; }
+  const qmap = {};
+  for (const q of d.quotes || []) qmap[q.code] = q;
+  for (const c of codes) {
+    const q = qmap[c];
+    const line = q ? ` · ${q.name} ${q.price} (${q.change_pct != null ? (q.change_pct >= 0 ? '+' : '') + q.change_pct + '%' : ''})` : '';
+    el.innerHTML += `<div style="margin:4px 0;display:flex;align-items:center;gap:8px">
+      <span>${c}${line}</span>
+      <button onclick="removeWatch('${c}')">删除</button></div>`;
+  }
+}
+async function addWatch() {
+  const code = document.querySelector('#wl-code').value.trim();
+  if (!code) return;
+  await fetch('/api/watchlist', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({code})});
+  document.querySelector('#wl-code').value = '';
+  refreshAll();
+}
+async function removeWatch(code) {
+  await fetch('/api/watchlist/' + code, {method: 'DELETE'});
+  refreshAll();
+}
+async function loadPortfolio() { renderPortfolio(await getJSON('/api/portfolio')); }
+async function loadAlerts() { renderAlerts(await getJSON('/api/alerts')); }
+
+function renderPlans(d) {
+  const el = document.querySelector('#plans');
+  el.innerHTML = '';
+  const plans = (d.plans || []).filter(p => !p.error);
+  for (const p of plans) {
+    const sup = (p.supports || []).slice(0, 2).map(s => `${s.price}(${s.label})`).join('、') || '-';
+    const res = (p.resistances || []).slice(0, 2).map(r => `${r.price}(${r.label})`).join('、') || '-';
+    el.innerHTML += `<div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)">
+      <b>${p.name}(${p.code})</b> <span class="muted">现价 ${p.price} · ${p.trend}</span><br>
+      支撑: ${sup}<br>压力: ${res}<br>
+      买入区间 <span class="down">${p.buy_range ? p.buy_range.join(' ~ ') : '-'}</span> ·
+      卖出区间 <span class="up">${p.sell_range ? p.sell_range.join(' ~ ') : '-'}</span> ·
+      止损 <b>${p.stop_loss ?? '-'}</b>
+    </div>`;
+  }
+  if (!plans.length) el.innerHTML = '<span class="muted">暂无数据。</span>';
+}
+
+async function loadPlans() { renderPlans(await getJSON('/api/plans')); }
+
+function renderOrders(d) {
+  const el = document.querySelector('#orders');
+  const rows = d.orders || [];
+  if (!rows.length) { el.innerHTML = '<span class="muted">暂无持仓,无需条件单。</span>'; return; }
+  let html = '<div class="muted" style="margin-bottom:6px">复制下表参数,到券商 App「条件单 / 智能委托 / 止盈止损单」里填:</div>';
+  for (const r of rows) {
+    const pnl = r.pnl_pct == null ? '-' : (r.pnl_pct >= 0 ? '+' : '') + r.pnl_pct + '%';
+    html += `<div style="margin-bottom:8px;padding-bottom:6px;border-bottom:1px dashed var(--line)">
+      <b>${r.name}(${r.code})</b> <span class="muted">持股 ${r.shares} · 现价 ${r.price} · 盈亏 ${pnl}</span><br>
+      止损卖出:触发 <b class="down">${r.stop_trigger ?? '-'}</b> / 委托 ${r.stop_order ?? '-'} / 数量 ${r.shares}` +
+      (r.take_trigger ? `<br>止盈卖出(可选):触发 <b class="up">${r.take_trigger}</b> / 委托 ${r.take_order} / 数量 ${r.shares}` : '') +
+      `</div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function loadOrders() { renderOrders(await getJSON('/api/orders')); }
+
+function renderPosition(d) {
+  const el = document.querySelector('#position');
+  const env = d.market || {};
+  let html = '';
+  for (const i of env.indices || []) {
+    const c = i.trend === '强势' ? 'up' : (i.trend === '弱势' ? 'down' : '');
+    html += `${i.name} ${i.price} <span class="${c}">${i.trend}</span> <span class="muted">近20日 ${i.chg20_pct}%</span><br>`;
+  }
+  if (env.suggest_position) {
+    html += `<br><b>建议总仓位 ${env.suggest_position[0]}%-${env.suggest_position[1]}%</b>`;
+    if (d.position_pct != null) html += ` · 当前仓位 ${d.position_pct}%`;
+    html += '<br>';
+  }
+  for (const a of d.advice || []) html += `<span class="muted">· ${a}</span><br>`;
+  el.innerHTML = html || '<span class="muted">暂无数据</span>';
+}
+
+function renderPicks(d) {
+  const el = document.querySelector('#picks');
+  const picks = d.picks || [];
+  if (!picks.length) { el.innerHTML = '<span class="muted">暂无推荐(榜单接口可能临时不可用,稍后刷新)。</span>'; return; }
+  let html = '';
+  for (const p of picks) {
+    html += `<div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--line)">
+      <b>${p.name}(${p.code})</b> <span class="muted">${p.price} · ${p.industry || ''} · 评分 ${p.score}</span><br>
+      <span class="muted">${(p.reasons || []).join('、')}</span></div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function loadPosition() { renderPosition(await getJSON('/api/position')); }
+async function loadPicks() { renderPicks(await getJSON('/api/picks')); }
+
+function renderReview(d) {
+  const el = document.querySelector('#review');
+  const s = d.summary || {};
+  const keys = Object.keys(s);
+  if (!keys.length) {
+    el.innerHTML = `<span class="muted">暂无足够样本(历史推荐 ${d.total || 0} 条)。
+      每天推送会自动记录推荐,累积几个交易日后就能看到真实胜率。</span>`;
+    return;
+  }
+  let html = '';
+  for (const k of keys) {
+    const v = s[k];
+    const cls = v.avg_return >= 0 ? 'up' : 'down';
+    html += `推荐后 <b>${k}</b> 个交易日:${v.n} 只样本,胜率 <b>${v.win_rate}%</b>,
+      平均 <span class="${cls}">${v.avg_return >= 0 ? '+' : ''}${v.avg_return}%</span>
+      <span class="muted">(最好 ${v.best}% / 最差 ${v.worst}%)</span><br>`;
+  }
+  el.innerHTML = html;
+}
+
+async function loadReview() { renderReview(await getJSON('/api/review')); }
+
+async function loadAI() {
+  const btn = document.querySelector('#ai-btn');
+  const el = document.querySelector('#ai-text');
+  btn.disabled = true; btn.textContent = '生成中…';
+  el.className = ''; el.textContent = '正在调用 DeepSeek,请稍候…';
+  try {
+    const d = await getJSON('/api/ai');
+    if (d.error) { el.className = 'up'; el.textContent = '⚠ ' + d.error; }
+    else { el.className = ''; el.textContent = d.text; }
+  } catch (e) {
+    el.className = 'up'; el.textContent = '⚠ 请求失败: ' + e;
+  } finally {
+    btn.disabled = false; btn.textContent = '🤖 AI 解读';
+  }
+}
+
+async function addPosition() {
+  const code = document.querySelector('#in-code').value.trim();
+  const name = document.querySelector('#in-name').value.trim();
+  const shares = document.querySelector('#in-shares').value;
+  const cost = document.querySelector('#in-cost').value;
+  const msg = document.querySelector('#add-msg');
+  try {
+    const r = await fetch('/api/positions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code, name, shares, cost})
+    });
+    const d = await r.json();
+    if (d.error) { msg.textContent = '⚠ ' + d.error; msg.className = 'up'; }
+    else {
+      msg.textContent = '✓ 已添加 ' + d.code;
+      msg.className = 'down';
+      document.querySelector('#in-code').value = '';
+      document.querySelector('#in-name').value = '';
+      document.querySelector('#in-shares').value = '';
+      document.querySelector('#in-cost').value = '';
+      refreshAll();
+    }
+  } catch (e) { msg.textContent = '⚠ 请求失败: ' + e; msg.className = 'up'; }
+}
+
+async function removePosition(code) {
+  await fetch('/api/positions/' + code, {method: 'DELETE'});
+  refreshAll();
+}
+
+async function refreshAll() {
+  document.querySelector('#updated').textContent = '刷新中…';
+  await Promise.allSettled([loadQuotes(), loadWatch(), loadPortfolio(), loadAlerts(), loadPlans(), loadOrders(), loadPosition(), loadReview()]);
+  document.querySelector('#updated').textContent = '更新于 ' + new Date().toLocaleTimeString();
+  loadPicks();  // 较慢(需逐只取K线),单独异步加载,不阻塞其它区域
+}
+
+refreshAll();
+</script>
+</body>
+</html>

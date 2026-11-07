@@ -1,0 +1,15 @@
+# 敏感信息与本地数据,勿提交
+secrets.json
+portfolio.json
+config.json
+push.log
+picks_history.json
+pip-install.log
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.pip-tmp/
+pylibs/
+
+# 本地(Windows)启动脚本,云端用不到;想备份可以删掉这两行
+手机访问_启动穿透.bat
