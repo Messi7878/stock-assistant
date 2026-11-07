@@ -1,0 +1,20 @@
+credentials:
+  usernames:
+    owner:
+      name: 我
+      email: owner@example.com
+      password: $2b$12$sEnwj3396B8T6yp5KYyBMOsKt1RufNxVS8DegnNR115BizSTA5Pca
+    family1:
+      name: 家人1
+      email: family1@example.com
+      password: $2b$12$iXAtXv9tQtOwjkCvim/w9eOvRd0jRyVLcUp0YMa3LJEP9govhOjyO
+    family2:
+      name: 家人2
+      email: family2@example.com
+      password: $2b$12$zdAlDjnYwwVInB0nvW8SPudaYDgTCkIz8J/lPnvC4eHmNo01K6cUS
+cookie:
+  expiry_days: 30
+  name: stock_assistant
+  key: ZKtFlAg7PL9_GCtAfJ2SkJCzcP-dE8BG
+preauthorized:
+  emails: []
