@@ -159,6 +159,30 @@ python daily_push.py     # 生成报告并推送一次
 > 免费隧道每次重启**网址会变**(注册 localhost.run 并配置 SSH key 可固定子域名)。
 > 网址 + 密码不要外传:虽然加了密码,但别人同时拿到两者就能看到你的持仓。
 
+## 云端版(Streamlit,电脑关机也能用)
+
+上面那套是本地仪表盘(电脑必须开机)。**如果希望电脑关机、人在外面也能用手机看,
+请用云端版**:
+
+| 文件 | 作用 |
+|------|------|
+| `streamlit_app.py` | 网页应用入口(Streamlit Cloud 的 main file) |
+| `requirements.txt` | 云端安装的依赖 |
+| `supabase_setup.sql` | 在 Supabase 里建表存每个人的持仓 |
+| `scripts/make_auth.py` | 生成/修改登录账号(密码存 bcrypt 哈希) |
+| `auth_config.yaml` | 账号配置(含哈希,可提交) |
+| `.streamlit/secrets.toml.example` | 密钥模板(**不要**提交真实的 secrets.toml) |
+| `部署指南.md` | 从零开始的逐步操作说明 |
+
+要点:
+
+- 每个账号(自己 + 家人)在 Supabase 里存自己的一份持仓/自选/总资金,互不干扰;
+  换手机、换电脑登录同一个账号数据都在。
+- DeepSeek key 写在 Streamlit 的 Secrets 里,只有服务端能读到。
+- 免费版闲置会休眠,第一次打开要等 20–40 秒。
+
+完整步骤见 [部署指南.md](部署指南.md)。
+
 ## 路线图
 
 - [x] 阶段 1 数据底座(行情/K线/持仓)
