@@ -13,3 +13,5 @@ pylibs/
 
 # 本地(Windows)启动脚本,云端用不到;想备份可以删掉这两行
 手机访问_启动穿透.bat
+_leftbar.png
+_sqleditor_hint.png
