@@ -52,7 +52,11 @@ _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 def _sb_cfg():
     try:
         s = st.secrets["supabase"]
-        url, key = str(s["url"]).rstrip("/"), str(s["key"])
+        url = str(s["url"]).rstrip("/")
+        try:
+            key = str(s["key"])
+        except Exception:  # noqa: BLE001
+            key = str(s["anon_key"])
         if url.startswith("http") and key:
             return url, key
     except Exception:  # noqa: BLE001
@@ -61,15 +65,18 @@ def _sb_cfg():
 
 
 def _sb_headers(key):
-    return {"apikey": key, "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json"}
+    """新版 publishable key(sb_publishable_...)只放 apikey;旧版 JWT(eyJ...)才加 Bearer。"""
+    h = {"apikey": key, "Content-Type": "application/json"}
+    if key.startswith("eyJ"):
+        h["Authorization"] = f"Bearer {key}"
+    return h
 
 
 def sb_get(user, key_name, default=None):
     url, key = _sb_cfg()
     if not url:
         return default
-    q = (f"{url}/rest/v1/kv?user=eq.{urllib.parse.quote(user)}"
+    q = (f"{url}/rest/v1/kv?user_id=eq.{urllib.parse.quote(user)}"
          f"&key=eq.{urllib.parse.quote(key_name)}&select=value")
     try:
         req = urllib.request.Request(q, headers=_sb_headers(key))
@@ -86,7 +93,7 @@ def sb_put(user, key_name, value):
     url, key = _sb_cfg()
     if not url:
         return False
-    body = json.dumps([{"user": user, "key": key_name, "value": value}],
+    body = json.dumps([{"user_id": user, "key": key_name, "value": value}],
                       ensure_ascii=False).encode("utf-8")
     hdrs = _sb_headers(key)
     hdrs["Prefer"] = "resolution=merge-duplicates,return=minimal"
@@ -252,7 +259,13 @@ with st.sidebar:
 
     st.divider()
     if not store.persistent:
-        st.warning("未配置 Supabase:持仓只存在当前浏览器会话里,刷新会丢失。")
+        st.warning("未配置 Supabase 或连接失败:持仓只存在当前浏览器会话里,刷新会丢失。")
+        _u, _k = _sb_cfg()
+        if _u:
+            st.caption(f"尝试连接的地址:{_u}(连不上就核对拼写)")
+    else:
+        _u, _k = _sb_cfg()
+        st.caption(f"云端存储:{_u.split('//')[-1] if _u else '-'}")
 
 # ---------------------------------------------------------------- 取数
 quotes = fetch_quotes(tuple(codes)) if codes else []
