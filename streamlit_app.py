@@ -56,11 +56,20 @@ import streamlit_authenticator as stauth  # noqa: E402
 
 
 def _md_item(date, title, url, extra=""):
-    """把一条公告/新闻渲染成可点击的列表项(电脑、手机都能点开)。"""
-    t = (title or "").replace("[", "\\[").replace("]", "\\]")
+    """把一条公告/新闻渲染成可点击的列表项(新标签页打开,电脑、手机都能点)。"""
+    import html as _html
+    t = _html.escape(title or "")
     tail = " · ".join(x for x in (date, extra) if x)
-    head = f"[{t}]({url})" if url else t
-    return f"- {head}" + (f" · {tail}" if tail else "")
+    if url:
+        head = (f'<a href="{_html.escape(url, quote=True)}" target="_blank" '
+                f'rel="noopener noreferrer">{t}</a>')
+    else:
+        head = t
+    return "<li>" + head + (f" · {tail}" if tail else "") + "</li>"
+
+
+def _md_list(items):
+    return '<ul style="margin:0.2rem 0 0.8rem 0;padding-left:1.2rem">' + "".join(items) + "</ul>"
 
 
 # ---------------------------------------------------------------- 存储层
@@ -380,20 +389,20 @@ with tab1:
                             anns = nd.get("announcements", [])
                             news_list = nd.get("news", [])
                             st.write(f"公告 {len(anns)} 条 / 新闻 {len(news_list)} 条"
-                                     f"(点标题直接打开原文)")
+                                     f"(点标题在新标签页打开原文)")
                             if anns:
                                 st.markdown("**📄 公告**")
-                                st.markdown("\n".join(
+                                st.markdown(_md_list(
                                     _md_item(a["date"], a["title"], a.get("url"))
-                                    for a in anns[:5]))
+                                    for a in anns[:5]), unsafe_allow_html=True)
                                 st.caption(f"[查看全部公告](https://data.eastmoney.com/"
                                            f"notices/stock/{code}.html)")
                             if news_list:
                                 st.markdown("**📰 新闻**")
-                                st.markdown("\n".join(
+                                st.markdown(_md_list(
                                     _md_item(n["date"], n["title"], n.get("url"),
                                              n.get("media"))
-                                    for n in news_list[:8]))
+                                    for n in news_list[:8]), unsafe_allow_html=True)
                             res = llm.analyze_news(cp["name"], code, nd)
                             if res:
                                 st.success(f"AI 判断:{res.get('sentiment')}"
