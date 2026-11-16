@@ -5,6 +5,7 @@ config.json
 push.log
 picks_history.json
 pip-install.log
+llm_usage.json
 .streamlit/secrets.toml
 __pycache__/
 *.pyc

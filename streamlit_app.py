@@ -494,6 +494,12 @@ with tab6:
         st.warning("未配置 DEEPSEEK_API_KEY,AI 解读不可用。")
     else:
         st.caption("点一次 = 调用一次 DeepSeek(约 1-2 千 tokens)。")
+        try:
+            _u = llm.usage_today()
+            st.caption(f"今日已用:{_u['calls']} / {_u['call_limit']} 次 · "
+                       f"{_u['tokens']:,} / {_u['token_limit']:,} tokens")
+        except Exception:  # noqa: BLE001
+            pass
         if st.button("生成今天的 AI 解读", key="btn_ai"):
             with st.spinner("AI 正在写…"):
                 plans = fetch_plans(tuple(codes)) if codes else {}

@@ -1,0 +1,8 @@
+#!/bin/sh
+# 这个仓库是公开的:提交前必须确认没有真实密钥被带上去。
+# 启用方式(只需一次):git config core.hooksPath .githooks
+python scripts/check_secrets.py || {
+    echo ""
+    echo "提交已阻止:先把疑似密钥换成占位符(如 sk-xxxx),再重新提交。"
+    exit 1
+}
