@@ -5,12 +5,14 @@ API key 读取顺序:环境变量 DEEPSEEK_API_KEY -> 本地 secrets.json
 (secrets.json 不提交/不上传)。不填 key 时本模块不会被调用;
 分析本身(analysis.py)离线即可运行。
 
-花钱保护(三层,都可用环境变量覆盖):
+花钱保护(四层,都可用环境变量覆盖):
 1. 单次输出上限 LLM_MAX_TOKENS(默认 800),防止一次生成几千字;
-2. 每日调用次数上限 LLM_DAILY_CALLS(默认 80);
-3. 每日 token 上限 LLM_DAILY_TOKENS(默认 300000)。
+2. **每日花费上限 LLM_DAILY_COST(默认 2.00 元)**,按官方价估算;
+3. 每日调用次数上限 LLM_DAILY_CALLS(默认 80);
+4. 每日 token 上限 LLM_DAILY_TOKENS(默认 300000)。
 超过上限直接报错,不会静默继续烧钱。用量记在项目根目录 llm_usage.json
-(已 gitignore,只对本机/本容器有效,重启容器会重置)。
+(已 gitignore,只对本机/本容器有效,重启容器会重置;若写不进去则退化为
+进程内存计数,同一进程内照样拦得住)。
 """
 import datetime as _dt
 import json
@@ -30,9 +32,42 @@ def _env_int(name, default):
         return default
 
 
+def _env_float(name, default):
+    try:
+        return float(os.environ.get(name) or default)
+    except (TypeError, ValueError):
+        return default
+
+
 MAX_TOKENS = _env_int("LLM_MAX_TOKENS", 800)
 DAILY_CALLS = _env_int("LLM_DAILY_CALLS", 80)
 DAILY_TOKENS = _env_int("LLM_DAILY_TOKENS", 300000)
+
+# DeepSeek 官方价(元 / 百万 tokens)。涨价了改这几个环境变量即可,不用改代码。
+PRICE_IN_HIT = _env_float("LLM_PRICE_IN_HIT", 0.5)    # 输入,命中缓存
+PRICE_IN_MISS = _env_float("LLM_PRICE_IN_MISS", 2.0)   # 输入,未命中缓存
+PRICE_OUT = _env_float("LLM_PRICE_OUT", 8.0)           # 输出
+DAILY_COST = _env_float("LLM_DAILY_COST", 2.0)         # 每天最多花多少元
+
+
+def _cost(usage):
+    """按本次返回的 usage 估算花了多少钱(元)。"""
+    if not isinstance(usage, dict):
+        return 0.0
+    out = usage.get("completion_tokens") or 0
+    hit = usage.get("prompt_cache_hit_tokens")
+    miss = usage.get("prompt_cache_miss_tokens")
+    if hit is None and miss is None:
+        miss = usage.get("prompt_tokens") or 0
+        hit = 0
+    try:
+        return (
+            float(hit or 0) * PRICE_IN_HIT
+            + float(miss or 0) * PRICE_IN_MISS
+            + float(out) * PRICE_OUT
+        ) / 1_000_000
+    except (TypeError, ValueError):
+        return 0.0
 
 
 # ---------------------------------------------------------------- 用量记账
@@ -40,7 +75,7 @@ def _today():
     return _dt.date.today().isoformat()
 
 
-_MEM = {"date": "", "calls": 0, "tokens": 0}
+_MEM = {"date": "", "calls": 0, "tokens": 0, "cost": 0.0}
 
 
 def _load_usage():
@@ -50,21 +85,23 @@ def _load_usage():
     至少在同一进程内不会无视上限;磁盘那份则负责跨重启累计。
     """
     today = _today()
-    disk = {"date": today, "calls": 0, "tokens": 0}
+    disk = {"date": today, "calls": 0, "tokens": 0, "cost": 0.0}
     try:
         with open(_USAGE_FILE, encoding="utf-8") as f:
             d = json.load(f)
         if isinstance(d, dict) and d.get("date") == today:
             disk["calls"] = int(d.get("calls") or 0)
             disk["tokens"] = int(d.get("tokens") or 0)
+            disk["cost"] = float(d.get("cost") or 0)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         pass
     if _MEM["date"] != today:
-        _MEM.update({"date": today, "calls": 0, "tokens": 0})
+        _MEM.update({"date": today, "calls": 0, "tokens": 0, "cost": 0.0})
     return {
         "date": today,
         "calls": max(disk["calls"], _MEM["calls"]),
         "tokens": max(disk["tokens"], _MEM["tokens"]),
+        "cost": max(disk["cost"], _MEM["cost"]),
     }
 
 
@@ -78,6 +115,10 @@ def _save_usage(d):
 
 def _check_budget():
     u = _load_usage()
+    if u["cost"] >= DAILY_COST:
+        raise RuntimeError(
+            f"今日 AI 花费已达上限({DAILY_COST:.2f} 元),明天再来;"
+            f"确需放开请设环境变量 LLM_DAILY_COST")
     if u["calls"] >= DAILY_CALLS:
         raise RuntimeError(
             f"今日 AI 调用已达上限({DAILY_CALLS} 次),明天再试;"
@@ -96,14 +137,20 @@ def _record(usage):
             u["tokens"] += int(usage.get("total_tokens") or 0)
         except (TypeError, ValueError):
             pass
+    u["cost"] = round(u["cost"] + _cost(usage), 6)
     _MEM.update(u)
     _save_usage(u)
 
 
 def usage_today():
-    """给界面显示用:今天的调用次数与 token 用量。"""
+    """给界面显示用:今天的调用次数、token 与花费。"""
     u = _load_usage()
-    return {**u, "call_limit": DAILY_CALLS, "token_limit": DAILY_TOKENS}
+    return {
+        **u,
+        "call_limit": DAILY_CALLS,
+        "token_limit": DAILY_TOKENS,
+        "cost_limit": DAILY_COST,
+    }
 
 
 def get_api_key():
