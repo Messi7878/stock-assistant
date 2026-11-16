@@ -40,17 +40,32 @@ def _today():
     return _dt.date.today().isoformat()
 
 
+_MEM = {"date": "", "calls": 0, "tokens": 0}
+
+
 def _load_usage():
+    """今天的用量 = 磁盘文件 与 进程内存 取较大值。
+
+    云上容器的文件系统可能是只读的(写盘失败),内存兜底能保证
+    至少在同一进程内不会无视上限;磁盘那份则负责跨重启累计。
+    """
+    today = _today()
+    disk = {"date": today, "calls": 0, "tokens": 0}
     try:
         with open(_USAGE_FILE, encoding="utf-8") as f:
             d = json.load(f)
-        if not isinstance(d, dict) or d.get("date") != _today():
-            raise ValueError
-        d.setdefault("calls", 0)
-        d.setdefault("tokens", 0)
-        return d
-    except (OSError, ValueError, json.JSONDecodeError):
-        return {"date": _today(), "calls": 0, "tokens": 0}
+        if isinstance(d, dict) and d.get("date") == today:
+            disk["calls"] = int(d.get("calls") or 0)
+            disk["tokens"] = int(d.get("tokens") or 0)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    if _MEM["date"] != today:
+        _MEM.update({"date": today, "calls": 0, "tokens": 0})
+    return {
+        "date": today,
+        "calls": max(disk["calls"], _MEM["calls"]),
+        "tokens": max(disk["tokens"], _MEM["tokens"]),
+    }
 
 
 def _save_usage(d):
@@ -81,6 +96,7 @@ def _record(usage):
             u["tokens"] += int(usage.get("total_tokens") or 0)
         except (TypeError, ValueError):
             pass
+    _MEM.update(u)
     _save_usage(u)
 
 
