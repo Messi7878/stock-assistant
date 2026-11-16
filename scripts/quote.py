@@ -330,9 +330,13 @@ def cmd_advice(args):
         print("\n近期公告:")
         for a in news_data["announcements"][:5]:
             print(f"  · {a['date']} {a['title'][:60]}")
+            if a.get("url"):
+                print(f"    {a['url']}")
         print("近期新闻:")
         for n in news_data["news"][:5]:
             print(f"  · {n['date']} {n['title'][:60]}")
+            if n.get("url"):
+                print(f"    {n['url']}")
         if sentiment:
             print(f"\nAI 新闻判断:{sentiment.get('sentiment')}(分数 {sentiment.get('score')})")
             print(f"  理由:{sentiment.get('reason')}")

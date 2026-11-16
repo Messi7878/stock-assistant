@@ -27,6 +27,21 @@ def _strip(s):
     return re.sub(r"<[^>]+>", "", s or "").strip()
 
 
+def _ann_url(code, art_code):
+    """公告详情页。art_code 形如 AN202611131831690671。"""
+    if not art_code:
+        return ""
+    return f"https://data.eastmoney.com/notices/detail/{code}/{art_code}.html"
+
+
+def _fix_url(u):
+    """统一成 https,手机端跳转不会被拦。"""
+    u = (u or "").strip()
+    if u.startswith("http://"):
+        return "https://" + u[len("http://"):]
+    return u
+
+
 def fetch_announcements(code, limit=5):
     try:
         j = json.loads(http.http_get(_ANN.format(code=code, n=limit), retries=2, timeout=12))
@@ -35,6 +50,8 @@ def fetch_announcements(code, limit=5):
             out.append({
                 "date": (it.get("notice_date") or it.get("display_time") or "")[:10],
                 "title": _strip(it.get("title")),
+                "url": _ann_url(code, it.get("art_code")),
+                "source": "公告",
             })
         return out
     except Exception:  # noqa: BLE001
@@ -54,6 +71,8 @@ def fetch_news(code, limit=8):
                 "date": (it.get("date") or "")[:10],
                 "title": _strip(it.get("title")),
                 "media": it.get("mediaName") or "",
+                "url": _fix_url(it.get("url")),
+                "source": "新闻",
             })
         return out
     except Exception:  # noqa: BLE001

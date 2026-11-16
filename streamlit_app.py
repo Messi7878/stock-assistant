@@ -54,6 +54,15 @@ from src import (  # noqa: E402
 )
 import streamlit_authenticator as stauth  # noqa: E402
 
+
+def _md_item(date, title, url, extra=""):
+    """把一条公告/新闻渲染成可点击的列表项(电脑、手机都能点开)。"""
+    t = (title or "").replace("[", "\\[").replace("]", "\\]")
+    tail = " · ".join(x for x in (date, extra) if x)
+    head = f"[{t}]({url})" if url else t
+    return f"- {head}" + (f" · {tail}" if tail else "")
+
+
 # ---------------------------------------------------------------- 存储层
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -368,10 +377,23 @@ with tab1:
                     with st.spinner("读取公告/新闻 + AI 判断…"):
                         try:
                             nd = news.fetch_all(code)
-                            st.write(f"公告 {len(nd.get('announcements', []))} 条 / "
-                                     f"新闻 {len(nd.get('news', []))} 条")
-                            for a in nd.get("announcements", [])[:5]:
-                                st.write(f"- {a['date']} {a['title']}")
+                            anns = nd.get("announcements", [])
+                            news_list = nd.get("news", [])
+                            st.write(f"公告 {len(anns)} 条 / 新闻 {len(news_list)} 条"
+                                     f"(点标题直接打开原文)")
+                            if anns:
+                                st.markdown("**📄 公告**")
+                                st.markdown("\n".join(
+                                    _md_item(a["date"], a["title"], a.get("url"))
+                                    for a in anns[:5]))
+                                st.caption(f"[查看全部公告](https://data.eastmoney.com/"
+                                           f"notices/stock/{code}.html)")
+                            if news_list:
+                                st.markdown("**📰 新闻**")
+                                st.markdown("\n".join(
+                                    _md_item(n["date"], n["title"], n.get("url"),
+                                             n.get("media"))
+                                    for n in news_list[:8]))
                             res = llm.analyze_news(cp["name"], code, nd)
                             if res:
                                 st.success(f"AI 判断:{res.get('sentiment')}"
