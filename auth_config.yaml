@@ -15,6 +15,8 @@ credentials:
 cookie:
   expiry_days: 30
   name: stock_assistant
-  key: -1KjkkJZuXRDOXawdhgg3LV_jbk-OjXj
+  # 不要在这里写签名密钥:代码从 Streamlit Secrets 的 COOKIE_KEY 读取,
+  # 没配置时每个进程随机生成。写在这里会随仓库公开。
+  key: ""
 preauthorized:
   emails: []

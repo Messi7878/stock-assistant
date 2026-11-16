@@ -15,6 +15,7 @@
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -200,9 +201,41 @@ else:  # 兼容新版 API
     auth_status = st.session_state.get("authentication_status")
     username = st.session_state.get("username")
 
+# --- 登录失败限速:同一用户名 10 分钟内错 5 次就锁一会儿 ---
+# 登录页是公网可访问的,这条用来挡住暴力猜密码(bcrypt 12 轮本身也要 0.2 秒/次)。
+# 用 cache_resource 存,保证跨会话/跨 rerun 共用同一份计数。
+_LOGIN_WINDOW = 600
+_LOGIN_MAX_FAIL = 5
+
+
+@st.cache_resource(show_spinner=False)
+def _throttle_store():
+    return {}
+
+
+_THROTTLE = _throttle_store()
+
+
+def _login_guard_fail(u):
+    now = time.time()
+    cnt, ts = _THROTTLE.get(u, (0, now))
+    if now - ts > _LOGIN_WINDOW:
+        cnt, ts = 0, now
+    cnt += 1
+    _THROTTLE[u] = (cnt, ts)
+    return cnt, int(_LOGIN_WINDOW - (now - ts))
+
+
 if auth_status is False:
-    st.error("用户名或密码错误")
+    _u = (st.session_state.get("username") or "?").strip()
+    _cnt, _left = _login_guard_fail(_u)
+    if _cnt >= _LOGIN_MAX_FAIL:
+        st.error(f"密码错误次数过多,请 {max(_left, 60) // 60} 分钟后再试。")
+    else:
+        st.error(f"用户名或密码错误(还可尝试 {_LOGIN_MAX_FAIL - _cnt} 次)")
     st.stop()
+if auth_status:
+    _THROTTLE.pop((username or "").strip(), None)
 if auth_status is None:
     st.info("请在上方输入用户名和密码登录。忘记密码请找管理员重置。")
     st.caption("本工具只做技术面参考,不构成投资建议。")
