@@ -143,11 +143,25 @@ except Exception as exc:  # noqa: BLE001
     st.error(f"缺少 auth_config.yaml:{exc}")
     st.stop()
 
+@st.cache_resource(show_spinner=False)
+def _cookie_key():
+    """登录 cookie 的签名密钥。
+
+    优先用 Secrets 里的 COOKIE_KEY;没配就**每次启动随机生成一个**——
+    这样即使仓库里的兜底值被人看到,也无法伪造登录 cookie
+    (代价:应用重启后需要重新登录)。
+    """
+    k = _sec("COOKIE_KEY")
+    if k:
+        return str(k)
+    import secrets as _s
+    return _s.token_urlsafe(32)
+
+
 authenticator = stauth.Authenticate(
     _auth_cfg["credentials"],
     _auth_cfg["cookie"]["name"],
-    # 优先用 Secrets 里的 COOKIE_KEY(仓库是公开的,auth_config.yaml 里的值谁都看得到)
-    str(_sec("COOKIE_KEY") or _auth_cfg["cookie"]["key"]),
+    _cookie_key(),
     _auth_cfg["cookie"]["expiry_days"],
 )
 
