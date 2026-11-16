@@ -40,6 +40,15 @@ _dk = _sec("DEEPSEEK_API_KEY")
 if _dk:
     os.environ["DEEPSEEK_API_KEY"] = str(_dk).strip()
 
+# Streamlit 的 Secrets 不会自动变成环境变量;这里把 LLM_* 预算参数透传过去,
+# 想改每日上限只要在 Secrets 里加一行,例如 LLM_DAILY_COST = 2.0
+try:
+    for _k in list(st.secrets.keys()):
+        if str(_k).startswith("LLM_") and str(_k) not in os.environ:
+            os.environ[str(_k)] = str(st.secrets[_k]).strip()
+except Exception:  # noqa: BLE001
+    pass
+
 from src import (  # noqa: E402
     alerts, allocation, data, llm, news, orders, plan, pricing, screen,
 )
