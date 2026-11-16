@@ -146,7 +146,8 @@ except Exception as exc:  # noqa: BLE001
 authenticator = stauth.Authenticate(
     _auth_cfg["credentials"],
     _auth_cfg["cookie"]["name"],
-    _auth_cfg["cookie"]["key"],
+    # 优先用 Secrets 里的 COOKIE_KEY(仓库是公开的,auth_config.yaml 里的值谁都看得到)
+    str(_sec("COOKIE_KEY") or _auth_cfg["cookie"]["key"]),
     _auth_cfg["cookie"]["expiry_days"],
 )
 
