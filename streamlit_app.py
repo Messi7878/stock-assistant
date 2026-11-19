@@ -117,7 +117,7 @@ def sb_get(user, key_name, default=None):
         return default
 
 
-def sb_put(user, key_name, value):
+def sb_put(user, key_name, value, quiet=False):
     url, key = _sb_cfg()
     if not url:
         return False
@@ -131,8 +131,24 @@ def sb_put(user, key_name, value):
         with _DIRECT.open(req, timeout=20) as resp:
             return 200 <= resp.status < 300
     except Exception as exc:  # noqa: BLE001
-        st.error(f"保存失败:{exc}")
+        if not quiet:
+            st.error(f"保存失败:{exc}")
         return False
+
+
+def sb_get_all(key_like):
+    """跨账号读一批 key(只给 owner 看使用统计用)。"""
+    url, key = _sb_cfg()
+    if not url:
+        return []
+    q = (f"{url}/rest/v1/kv?key=like.{urllib.parse.quote(key_like)}"
+         "&select=user_id,key,value")
+    try:
+        req = urllib.request.Request(q, headers=_sb_headers(key))
+        with _DIRECT.open(req, timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8")) or []
+    except Exception:  # noqa: BLE001
+        return []
 
 
 class Store:
@@ -153,6 +169,51 @@ class Store:
             return sb_put(self.user, key_name, value)
         st.session_state[f"{self.user}:{key_name}"] = value
         return True
+
+
+# ---------------------------------------------------------------- 使用统计
+# 不做第三方埋点,复用 kv 表:每个账号每天一行 `usage:YYYY-MM-DD`,value={"n": 次数}。
+# 一次浏览器会话记一次(打开/刷新新会话才算),owner 在侧边栏能看到汇总。
+USAGE_KEY = "usage:"
+
+
+def log_usage(user):
+    if st.session_state.get("_usage_logged"):
+        return
+    st.session_state["_usage_logged"] = True
+    if not _sb_cfg()[0]:
+        return
+    day = pd.Timestamp.now().strftime("%Y-%m-%d")
+    cur = sb_get(user, USAGE_KEY + day, None) or {}
+    try:
+        n = int(cur.get("n", 0)) + 1 if isinstance(cur, dict) else 1
+    except Exception:  # noqa: BLE001
+        n = 1
+    sb_put(user, USAGE_KEY + day,
+           {"n": n, "last": pd.Timestamp.now().strftime("%m-%d %H:%M")}, quiet=True)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_usage(days=7):
+    """把所有人的 usage:{日期} 记录汇总成 [(日期, 次数, 人数, 明细)]。"""
+    agg = {}
+    for r in sb_get_all(USAGE_KEY + "*"):
+        k = str(r.get("key") or "")
+        if not k.startswith(USAGE_KEY):
+            continue
+        day = k[len(USAGE_KEY):]
+        try:
+            n = int((r.get("value") or {}).get("n", 0))
+        except Exception:  # noqa: BLE001
+            n = 0
+        d = agg.setdefault(day, {"n": 0, "users": {}})
+        d["n"] += n
+        u = r.get("user_id") or "?"
+        d["users"][u] = d["users"].get(u, 0) + n
+    out = sorted(agg.items(), reverse=True)[:days]
+    return [(day, v["n"], len(v["users"]),
+             "、".join(f"{u} {c} 次" for u, c in sorted(v["users"].items())))
+            for day, v in out]
 
 
 # ---------------------------------------------------------------- 登录
@@ -240,6 +301,9 @@ if auth_status is None:
     st.info("请在上方输入用户名和密码登录。忘记密码请找管理员重置。")
     st.caption("本工具只做技术面参考,不构成投资建议。")
     st.stop()
+
+if auth_status:
+    log_usage(username)
 
 
 # ---------------------------------------------------------------- 缓存取数
@@ -341,6 +405,20 @@ with st.sidebar:
     else:
         _u, _k = _sb_cfg()
         st.caption(f"云端存储:{_u.split('//')[-1] if _u else '-'}")
+
+    if username == "owner":
+        st.divider()
+        with st.expander("📊 使用统计(最近 7 天)"):
+            rows = fetch_usage(7)
+            if not rows:
+                st.caption("还没有记录。从这次打开开始计数,明天再来看就有数了。")
+            else:
+                st.dataframe(
+                    pd.DataFrame(rows, columns=["日期", "访问次数", "使用人数", "账号明细"]),
+                    hide_index=True, use_container_width=True)
+                st.caption("一次新打开/刷新算一次;同一会话里点按钮不重复计数。")
+            st.button("刷新统计", key="btn_usage",
+                      on_click=lambda: fetch_usage.clear())
 
 # ---------------------------------------------------------------- 取数
 quotes = fetch_quotes(tuple(codes)) if codes else []
